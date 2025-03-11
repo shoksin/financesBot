@@ -7,6 +7,7 @@ type Empty struct{}
 // Множество уникальных категорий покупок пользователя
 type UserCategorySet map[string]Empty
 
+// Тип для записей о тратах.
 type UserDataRecord struct {
 	UserID   int64
 	Category string
@@ -14,6 +15,7 @@ type UserDataRecord struct {
 	Period   time.Time
 }
 
+// Тип для записей отчета.
 type UserDataReportRecord struct {
 	Category string
 	Sum      float64
@@ -27,7 +29,7 @@ type TgInlineButton struct {
 }
 
 // Строка с кнопками сообщения.
-type TgRowButton []TgInlineButton
+type TgRowButtons []TgInlineButton
 
 // Тип для хранения курса валюты в формате "USD" = 0.01659657
 type ExchangeRate map[string]float64

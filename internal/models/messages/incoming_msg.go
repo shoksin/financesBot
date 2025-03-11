@@ -1,17 +1,32 @@
 package messages
 
+//Разобраться с tracer и opentelemetry
+
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"github.com/shoksin/financesBot/internal/helpers/timeutils"
+	"github.com/shoksin/financesBot/internal/logger"
 	"github.com/shoksin/financesBot/internal/models/bottypes"
+	"go.opentelemetry.io/otel"
 )
 
 const (
 	txtStart          = "Привет, *%v*. Я помогаю вести учет расходов. Выберите действие."
 	txtUnknownCommand = "К сожалению, данная команда мне неизвестна. Для начала работы введите /start"
+	txtRecSave        = "Запись успешно сохранена."
+	txtRecOverLimit   = "Запись не сохранена: превышен бюджет раходов в текущем месяце."
 	txtHelp           = "Я - бот, помогающий вести учет расходов. Для начала работы введите /start"
 )
+
+var btnStart = []bottypes.TgRowButtons{
+	{bottypes.TgInlineButton{DisplayName: "Добавить категорию", Value: "/add_cat"}, bottypes.TgInlineButton{DisplayName: "Добавить расход", Value: "/add_rec"}},
+	{bottypes.TgInlineButton{DisplayName: "Отчёт за неделю", Value: "/report_w"}, bottypes.TgInlineButton{DisplayName: "Отчёт за месяц", Value: "/report_m"}, bottypes.TgInlineButton{DisplayName: "Отчёт за год", Value: "/report_y"}},
+	{bottypes.TgInlineButton{DisplayName: "Ввести данные за прошлый период", Value: "/add_tbl"}},
+	{bottypes.TgInlineButton{DisplayName: "Выбрать валюту", Value: "/choice_currency"}, bottypes.TgInlineButton{DisplayName: "Установить лимит", Value: "/set_limit"}},
+}
 
 // MessageSender Интерфейс для работы с сообщениями.
 type MessagesSender interface {
@@ -53,6 +68,111 @@ type kafkaProducer interface {
 
 // Model Модель бота (клиент, хранилище, последние команды пользователя)
 type Model struct {
-	ctx      context.Context
-	tgClient MessagesSender
+	ctx             context.Context
+	tgClient        MessagesSender
+	storage         UserDataStorage
+	currencies      ExchangeRates
+	reportCache     LRUCache
+	kafkaProducer   kafkaProducer
+	lastUserCat     map[int64]string
+	lastUserCommand map[int64]string
+}
+
+func New(ctx context.Context, tgClient MessagesSender, storage UserDataStorage, currencies ExchangeRates, reportCache LRUCache, kafka kafkaProducer) *Model {
+	return &Model{
+		ctx:             ctx,
+		tgClient:        tgClient,
+		storage:         storage,
+		currencies:      currencies,
+		reportCache:     reportCache,
+		kafkaProducer:   kafka,
+		lastUserCat:     map[int64]string{},
+		lastUserCommand: map[int64]string{},
+	}
+}
+
+type Message struct {
+	Text            string
+	UserID          int64
+	UserName        string
+	UserDisplayname string
+	IsCallback      bool
+	CallbackMsgID   string
+}
+
+func (s *Model) GetCtx() context.Context {
+	return s.ctx
+}
+
+func (s *Model) SetCtx(ctx context.Context) {
+	s.ctx = ctx
+}
+
+func (s *Model) IncomingMessage(msg Message) error {
+	tracer := otel.Tracer("messages")
+	ctx, span := tracer.Start(s.ctx, "IncomingMessage")
+	s.ctx = ctx
+	defer span.End()
+
+	lastUserCat := s.lastUserCat[msg.UserID]
+	lastUserCommand := s.lastUserCommand[msg.UserID]
+
+	s.lastUserCat[msg.UserID] = ""
+	s.lastUserCommand[msg.UserID] = ""
+
+	// Проверка ввода суммы расхода по выбранной категории и сохранение, если введено.
+	if isNeedReturn, err := checkIfEnterCategorySum(s, msg, lastUserCat); err != nil || isNeedReturn {
+		return err
+	}
+
+	// Проверка ввода новой категории и сохранение, если введено.
+	if isNeedReturn, err := checkIfEnterNewCategory(s, msg, lastUserCommand); err != nil || isNeedReturn {
+		return err
+	}
+
+	// Проверка ввода лимита и сохранение, если введено.
+
+}
+
+// Область "Внешний интерфейс": конец.
+
+// Область "Служебные функции": начало.
+
+// Область "Распознавание входящих команд": начало.
+
+// Проверка ввода суммы расхода по выбранной категории.
+func checkIfEnterCategorySum(s *Model, msg Message, lastUserCat string) (bool, error) {
+	if lastUserCat != "" && msg.Text != "" {
+		tracer := otel.Tracer("messages")
+		ctx, span := tracer.Start(s.ctx, "checkIfEnterCategorySum")
+		s.ctx = ctx
+		defer span.End()
+
+		// Парсинг и конвертация введенной суммы.
+		catSum, err := parseAndConvertSumFromCurrency(s, msg.UserID, msg.Text)
+		if err != nil {
+			return true, err
+		}
+
+		newRec := bottypes.UserDataRecord{UserID: msg.UserID, Category: lastUserCat, Sum: catSum, Period: time.Now()}
+		isOverLimit, err := s.storage.InsertUserDataRecord(s.ctx, msg.UserID, newRec, msg.UserName, timeutils.BeginOfMonth(newRec.Period))
+		if err != nil {
+			if isOverLimit {
+				return true, s.tgClient.SendMessage(msg.UserID, txtRecOverLimit)
+			} else {
+				logger.Error("Error saving record", "err", err)
+				return true, fmt.Errorf("Insert data record error: %v", err)
+			}
+		}
+		// Ответ пользователю об успешном сохранении.
+		return true, s.tgClient.SendMessage(msg.UserID, txtRecSave)
+
+	}
+
+	//Ввели не расход
+	return false, nil
+}
+
+func checkIfEnterNewCategory(s *Model, msg Message, lastUserCommand string) (bool, error) {
+
 }
