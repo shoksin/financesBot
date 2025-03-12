@@ -124,7 +124,7 @@ type Message struct {
 	Text            string
 	UserID          int64
 	UserName        string
-	UserDisplayname string
+	UserDisplayName string
 	IsCallback      bool
 	CallbackMsgID   string
 }
@@ -419,7 +419,7 @@ func checkBotCommands(s *Model, msg Message) (bool, error) {
 
 	switch msg.Text {
 	case "/start":
-		displayName := msg.UserDisplayname
+		displayName := msg.UserDisplayName
 		if len(displayName) == 0 {
 			displayName = msg.UserName
 		}
