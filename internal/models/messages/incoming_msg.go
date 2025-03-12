@@ -21,15 +21,23 @@ import (
 const (
 	txtStart            = "Привет, *%v*. Я помогаю вести учет расходов. Выберите действие."
 	txtUnknownCommand   = "К сожалению, данная команда мне неизвестна. Для начала работы введите /start"
+	txtReportError      = "Не удалось получить данные."
+	txtReportEmpty      = "За указанный период данные отсутствуют."
+	txtReportWait       = "Формирование отчета. Пожалуйста, подождите..."
+	txtCatAdd           = "Введите название категории (не более 30 символов). Для отмены введите 0."
+	txtCatView          = "Выберите категорию, а затем введите сумму."
 	txtCatChoice        = "Выбрана категория *%v*. Введите сумму (только число). Для отмены введите 0. Используемая валюта: *%v*"
 	txtCatSave          = "Категория успешно сохранена."
 	txtCatEmpty         = "Пока нет категорий, сначала добавьте хотя бы одну категорию."
 	txtRecSave          = "Запись успешно сохранена."
 	txtRecOverLimit     = "Запись не сохранена: превышен бюджет раходов в текущем месяце."
+	txtRecTbl           = "Для загрузки истории расходов введите таблицу в следующем формате (дата сумма категория):\n`YYYY-MM-DD 0.00 XXX`\nНапример: \n`2022-09-20 1500 Кино`\n`2022-07-12 350.50 Продукты, еда`\n`2022-08-30 8000 Одежда и обувь`\n`2022-09-01 60 Бензин`\n`2022-09-27 425 Такси`\n`2022-09-26 1500 Бензин`\n`2022-09-26 950 Кошка`\n`2022-09-25 50 Бензин`\nИспользуемая валюта: *%v*"
 	txtReportQP         = "За какой период будем смотреть отчет? Команды периодов: /report_w - неделя, /report_m - месяц, /report_y - год"
 	txtHelp             = "Я - бот, помогающий вести учет расходов. Для начала работы введите /start"
+	txtCurrencyChoice   = "В качестве основной задана валюта: *%v*. Для изменения выберите другую валюту."
 	txtCurrencySet      = "Валюта изменена на *%v*."
 	txtCurrencySetError = "Ошибка сохранения валюты."
+	txtLimitInfo        = "Текущий ежемесячный бюджет: *%v*. Для изменения введите число, например, 80000."
 	txtLimitSet         = "Бюджет изменен на *%v*."
 )
 
@@ -177,6 +185,42 @@ func (s *Model) IncomingMessage(msg Message) error {
 
 	return s.tgClient.SendMessage(msg.UserID, txtUnknownCommand)
 
+}
+
+// SendReportToUser Отправка отчета за период.
+func (s *Model) SendReportToUser(dt []bottypes.UserDataReportRecord, userID int64, reportKey string) error {
+	ctx, span := tracer.Start(s.ctx, "SendReportToUser")
+	s.ctx = ctx
+	defer span.End()
+
+	strReportTitle := "Отчёт за "
+	switch reportKey {
+	case "w":
+		strReportTitle += "*последнюю неделю"
+	case "m":
+		strReportTitle += "*последний месяц"
+	case "y":
+		strReportTitle += "*последний год"
+	}
+
+	// Получение данных из БД.
+	userCurrency := getUserCurrency(s, userID)
+	answerText := formatReport(s, dt, userCurrency)
+	if len(answerText) == 0 {
+		answerText = txtReportEmpty
+	} else {
+		answerText = fmt.Sprintln(strReportTitle+" ("+userCurrency+")") + answerText
+	}
+
+	//Save in cache
+
+	reportCacheKey := strconv.Itoa(int(userID)) + reportKey
+	s.reportCache.Add(reportCacheKey, answerText)
+	err := s.tgClient.SendMessage(userID, answerText)
+	if err != nil {
+		logger.Error("Error sending message to Telegram", "err", err)
+	}
+	return nil
 }
 
 // Область "Внешний интерфейс": конец.
@@ -382,10 +426,112 @@ func checkBotCommands(s *Model, msg Message) (bool, error) {
 		return true, s.tgClient.ShowInlineButtons(fmt.Sprintf(txtStart, displayName), btnStart, msg.UserID)
 
 	case "/report":
-		return true, s.tgClient.SendMessage()
+		return true, s.tgClient.SendMessage(msg.UserID, txtReportQP)
+	case "/help":
+		return true, s.tgClient.SendMessage(msg.UserID, txtHelp)
+	case "/add_tbl":
+		s.lastUserCommand[msg.UserID] = "/add_tbl"
+		userCurrency := getUserCurrency(s, msg.UserID)
+		return true, s.tgClient.SendMessage(msg.UserID, fmt.Sprintf(txtRecTbl, userCurrency))
+
+	case "/report_w", "/report_m", "/report_y":
+		return true, s.tgClient.SendMessage(msg.UserID, getReportByPeriod(s, msg))
+	case "/add_cat":
+		s.lastUserCommand[msg.UserID] = "/add_cat"
+		return true, s.tgClient.SendMessage(msg.UserID, txtCatAdd)
+	case "/add_rec":
+		s.lastUserCommand[msg.UserID] = "/add_rec"
+		// Отображение кнопок с существующими категориями для выбора.
+		if btnCat, err := getCategoryButtons(s, msg.UserID); err != nil {
+			return true, err
+		} else {
+			return true, s.tgClient.ShowInlineButtons(txtCatView, btnCat, msg.UserID)
+		}
+	case "/choice_currency":
+		userCurrency := getUserCurrency(s, msg.UserID)
+		if btnCurr, err := getCurrencyButtons(s, userCurrency); err != nil {
+			return true, err
+		} else {
+			return true, s.tgClient.ShowInlineButtons(fmt.Sprintf(txtCurrencyChoice, userCurrency), btnCurr, msg.UserID)
+		}
+	case "/set_limit":
+		s.lastUserCommand[msg.UserID] = "/set_limit"
+		answerText := fmt.Sprintf(txtLimitInfo, "без ограничений")
+		userLimit, _ := getUserLimit(s, msg.UserID)
+		if userLimit > 0 {
+			answerText = fmt.Sprintf(txtLimitInfo, userLimit)
+		}
+		return true, s.tgClient.SendMessage(msg.UserID, answerText)
+	}
+	// Команда не распознана.
+	return false, nil
+}
+
+// Область "Распознавание входящих команд": конец.
+
+// Область "Формирование отчета": начало.
+
+func getReportByPeriod(s *Model, msg Message) string {
+	ctx, span := tracer.Start(s.ctx, "getReportByPeriod")
+	s.ctx = ctx
+	defer span.End()
+
+	answerText := ""
+	reportKey := strings.Replace(msg.Text, "report_", "", -1)
+
+	// Ключ для поиска в кэше.
+	reportCacheKey := strconv.Itoa(int(msg.UserID)) + reportKey
+	// Попытка получить значение из кэша.
+	cacheValue := s.reportCache.Get(reportCacheKey)
+	if cacheValue != nil {
+		answerText, ok := cacheValue.(string)
+		if ok {
+			return answerText
+		} else {
+			logger.Error("Error converting the cache value to a string.")
+		}
 	}
 
-	return false, nil
+	//Отправка запроса на формирование отчета в кафку.
+	p, o, err := s.kafkaProducer.SendMessage(strconv.Itoa(int(msg.UserID)), reportKey)
+	if err != nil {
+		logger.Error("Error send message to Kafka", "err", err)
+		answerText = txtReportError
+	} else {
+		logger.Debug(fmt.Sprintf("[KAFKA] Successful to write message, topic %s, offset: %d, partition: %d\n", s.kafkaProducer.GetTopic(), o, p))
+		answerText = txtReportWait
+	}
+
+	return answerText
+}
+
+func formatReport(s *Model, recs []bottypes.UserDataReportRecord, userCurrency string) string {
+	var res strings.Builder
+	totalSum := 0.0
+	for i, rec := range recs {
+		sumCurrency, err := s.currencies.ConvertSumFromBaseToCurrency(userCurrency, rec.Sum)
+		if err != nil {
+			logger.Error("Error currency convertation", "err", err)
+			return "ошибка конвертации валюты"
+		}
+		recs[i].Sum = sumCurrency
+		totalSum += sumCurrency
+	}
+	maxSumStr := fmt.Sprintf("%.2f", totalSum)
+
+	res.WriteString(fmt.Sprintf("`%*s | %v`", len(maxSumStr)+1, "Сумма", "Категория") + "\n")
+	res.WriteString(fmt.Sprintf("`%v`", strings.Repeat("-", len(maxSumStr)+15)) + "\n")
+
+	for _, rec := range recs {
+		// Форматирование категории и числа до нужной ширины.
+		res.WriteString(fmt.Sprintf("`%*.2f | %v`", len(maxSumStr)+1, rec.Sum, rec.Category) + "\n")
+	}
+
+	if len(recs) > 0 {
+		res.WriteString(fmt.Sprintf("`%v`", strings.Repeat("-", len(maxSumStr)+15)) + "\n")
+		res.WriteString(fmt.Sprintf("`%*.2f | %v`", len(maxSumStr)+1, totalSum, "ИТОГО") + "\n")
+	}
+	return res.String()
 }
 
 // Область "Получение данных пользователя": начало.
@@ -460,7 +606,7 @@ func parseLineRec(line string) (bottypes.UserDataRecord, error) {
 	matches := lineRegexp.FindStringSubmatch(line)
 	// [всё регулярное выражение], [Дата], [Цена], [Категория]
 	if len(matches) < 4 {
-		return bottypes.UserDataRecord{}, errors.New("Неверный формат строки.")
+		return bottypes.UserDataRecord{}, errors.New("неверный формат строки")
 	}
 
 	dateStr := matches[1]
@@ -469,12 +615,12 @@ func parseLineRec(line string) (bottypes.UserDataRecord, error) {
 
 	price, err := strconv.ParseFloat(priceStr, 64)
 	if err != nil {
-		return bottypes.UserDataRecord{}, fmt.Errorf("Incorrect price: %w", err)
+		return bottypes.UserDataRecord{}, fmt.Errorf("incorrect price: %w", err)
 	}
 
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
-		return bottypes.UserDataRecord{}, fmt.Errorf("Incorrect date: %w", err)
+		return bottypes.UserDataRecord{}, fmt.Errorf("incorrect date: %w", err)
 	}
 
 	return bottypes.UserDataRecord{
@@ -496,6 +642,15 @@ func convertSumFromCurrency(s *Model, userID int64, sum float64) (float64, error
 
 }
 
-func parseAndConvertSumFromCurrency(s *Model, userID int64, msgText string) (float64, error) {
-	currency := s.currencies.GetMainCurrency()
+// Парсинг вводимого пользователем числа и конвертация суммы в базовую валюту.
+func parseAndConvertSumFromCurrency(s *Model, userID int64, sumString string) (float64, error) {
+	sum, err := strconv.ParseFloat(sumString, 64)
+	if err != nil {
+		return 0, fmt.Errorf("error parse sum: %w", err)
+	}
+
+	if sum, err = convertSumFromCurrency(s, userID, sum); err != nil {
+		return 0, fmt.Errorf("error currency convertation: %w", err)
+	}
+	return sum, nil
 }
