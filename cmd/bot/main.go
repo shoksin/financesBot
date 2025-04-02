@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"runtime/metrics"
+	"github.com/shoksin/financesBot/internal/metrics"
 	"time"
 
 	"github.com/shoksin/financesBot/internal/clients/tg"

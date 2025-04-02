@@ -51,7 +51,7 @@ func init() {
 
 	http.Handle("/", promhttp.Handler())
 
-	logger.Info("Start metrics servis")
+	logger.Info("Start metrics service")
 	go func() {
 		// Для просмотра значений метрик по адресу http://127.0.0.1:8080/
 		err := http.ListenAndServe("0.0.0.0:8080", nil)
