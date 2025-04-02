@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"runtime/metrics"
 	"time"
 
+	"github.com/shoksin/financesBot/internal/clients/tg"
 	"github.com/shoksin/financesBot/internal/config"
 	"github.com/shoksin/financesBot/internal/logger"
 )
@@ -33,6 +35,20 @@ func main() {
 
 	/* TODO
 	Оборачивание в Middleware функции обработки сообщения для метрик и трейсинга.*/
+	tgProcessingFuncHandler := tg.HandlerFunc(tg.ProcessingMessages)
+	tgProcessingFuncHandler = metrics.
+	tgProcessingFuncHandler = tracing.
+
+	tgClient, err := tg.New(config, )
+	if err != nil{
+		logger.Fatal("Error initialazing tg-client:","err",err)
+	}
+
+	
+	//Инициализация хранилищ (подключение к базе данных)
+	
+
+
 
 	logger.Info("Application stop")
 }

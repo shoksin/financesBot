@@ -7,7 +7,6 @@ func BeginOfMonth(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
 }
 
-// Возвращает начало следующего месяца
 func BeginOfNextMonth(t time.Time) time.Time {
 	y := t.Year()
 	m := t.Month()
