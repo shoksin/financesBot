@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"net/http"
+	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/prometheus/client_golang/prometheus"
@@ -59,4 +61,42 @@ func init() {
 			logger.Error("Metrics public error", "err", err)
 		}
 	}()
+}
+
+// MetricsMiddleware Функция сбора метрик.
+func MetricsMiddleware(next tg.HandlerFunc) tg.HandlerFunc {
+	handler := tg.HandlerFunc(func(tgUpdate tgbotapi.Update, c *tg.Client, msgModel *messages.Model) {
+		startTime := time.Now()
+
+		next.RunFunc(tgUpdate, c, msgModel)
+
+		duration := time.Since(startTime)
+
+		// Сохранение метрик продолжительности обработки.
+		SummaryResponseTime.Observe(duration.Seconds())
+
+		// Определение команды для сохранения в метрике.
+		cmd := "none"
+		msg := ""
+		if tgUpdate.Message == nil {
+			if tgUpdate.CallbackQuery != nil {
+				msg = tgUpdate.CallbackQuery.Data
+			}
+		} else {
+			msg = tgUpdate.Message.Text
+		}
+		if msg != "" {
+			for _, lbl := range labels {
+				if strings.Contains(msg, "/"+lbl) {
+					cmd = lbl
+					break
+				}
+			}
+		}
+		HistogramResponseTime.WithLabelValues(cmd).Observe(duration.Seconds())
+	})
+
+	InFlightRequests.Dec()
+
+	return handler
 }
