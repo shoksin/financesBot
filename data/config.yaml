@@ -1,21 +1,21 @@
 token: XXX:XXXX
 
-mainCurrency: BYN
+main_currency: BYN
 
-CurrenciesName:
+currencies_name:
   - USD
   - CNY
   - EUR
   - RUB
   - BYN
 
-CurrenciesUpdatePeriod: 30
+currencies_update_period: 30
 
-CurrenciesUpdateCachePeriod: 30
+currencies_update_cache_period: 30
 
-ConnectionStringDB: host=localhost port=5432 dbname=tgbot user=tgbotadmin password=tgbotadminpass sslmode=disable
+сonnection_string_db: host=localhost port=5432 dbname=tgbot user=tgbotadmin password=tgbotadminpass sslmode=disable
 
-KafkaTopic: tgbot
+kafka_topic: tgbot
 
-BrokersList:
+brokers_list:
   - localhost:9092
