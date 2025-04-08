@@ -19,3 +19,4 @@ kafka_topic: tgbot
 
 brokers_list:
   - localhost:9092
+#comment

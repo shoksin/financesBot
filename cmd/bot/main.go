@@ -47,6 +47,7 @@ func main() {
 	}
 
 	//Инициализация хранилищ (подключение к базе данных)
+	
 
 	logger.Info("Application stop")
 }
