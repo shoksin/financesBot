@@ -14,4 +14,4 @@
 3.  OpenTelemetry (go get go.opentelemetry.io/otel)
 4.  jaeger (backend for tracing)
 5.  sqlx (go get github.com/jmoiron/sqlx)
-6.  pgx ()
+6.  pgx (go get github.com/jackc/pgx/v5)
