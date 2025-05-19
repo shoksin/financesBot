@@ -1,0 +1,22 @@
+token: XXX:XXXX
+
+main_currency: BYN
+
+currencies_name:
+  - USD
+  - CNY
+  - EUR
+  - RUB
+  - BYN
+
+currencies_update_period: 30
+
+currencies_update_cache_period: 30
+
+сonnection_string_db: host=localhost port=5432 dbname=tgbot user=tgbotadmin password=tgbotadminpass sslmode=disable
+
+kafka_topic: tgbot
+
+brokers_list:
+  - localhost:9092
+#comment
